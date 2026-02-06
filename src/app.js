@@ -1,5 +1,4 @@
 // Fitness Competition Tracker - Electron App
-// All application logic in vanilla JavaScript
 
 const AVATARS = ['🏃‍♀️', '🏃', '💪', '🧘‍♀️', '🧘', '🚴‍♀️', '🚴', '🏋️‍♀️', '🏋️', '⛹️‍♀️', '⛹️', '🤸‍♀️', '🏊‍♀️', '🏊', '🧗‍♀️', '🧗'];
 
@@ -49,15 +48,21 @@ function calculatePoints(logs) {
   return total;
 }
 
+// Check if a log entry has valid proof
+function hasProof(log) {
+  if (log.proofPath) return true;
+  if (log.proof && log.proof !== 'none' && log.proof !== '') return true;
+  return false;
+}
+
 function calculateStats(participant) {
   const logs = participant.logs || [];
   const workoutDays = logs.filter(l => l.completed).length;
   const totalMinutes = logs.reduce((acc, l) => acc + (l.duration || 0), 0);
   const waterDays = logs.filter(l => l.water).length;
   const friendWalks = logs.filter(l => l.walkWithFriend).length;
-  // Count proofs - check both proof and proofPath
-  const proofUploads = logs.filter(l => l.completed && (l.proofPath || (l.proof && l.proof !== 'none'))).length;
-  const noProofDays = logs.filter(l => l.completed && !l.proofPath && (!l.proof || l.proof === 'none')).length;
+  const proofUploads = logs.filter(l => l.completed && hasProof(l)).length;
+  const noProofDays = logs.filter(l => l.completed && !hasProof(l)).length;
   const totalSteps = logs.reduce((acc, l) => acc + (l.steps || 0), 0);
   const totalDistance = logs.reduce((acc, l) => acc + (l.distance || 0), 0);
   const weights = logs.filter(l => l.weight).map(l => l.weight);
@@ -113,27 +118,35 @@ function getCompetitionProgress() {
   return { day: Math.min(daysPassed, state.competition.durationDays), percent, daysLeft };
 }
 
-function getProofInfo(proof, proofPath) {
-  // Check proofPath first (file uploads)
+// Get proof display info
+function getProofInfo(log) {
+  const proof = log.proof;
+  const proofPath = log.proofPath;
+  
+  // Has a file uploaded
   if (proofPath) {
-    const isVideo = proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
-    const isImage = proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
-    if (isVideo) return { icon: '🎥', label: 'Video', cssClass: 'proof-badge--video', hasFile: true };
-    if (isImage) return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
-    return { icon: '📁', label: 'File', cssClass: 'proof-badge--photo', hasFile: true };
+    const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(proofPath);
+    return { 
+      icon: isVideo ? '🎥' : '📷', 
+      label: isVideo ? 'Video' : 'Photo', 
+      cssClass: isVideo ? 'proof-badge--video' : 'proof-badge--photo',
+      canView: true 
+    };
   }
-  // Check proof type or URL
-  if (!proof || proof === 'none') return { icon: '⚠️', label: 'No proof', cssClass: 'proof-badge--none', hasFile: false };
-  if (proof === 'photo') return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
-  if (proof === 'video') return { icon: '🎥', label: 'Video', cssClass: 'proof-badge--video', hasFile: true };
-  // Check for URLs
-  if (proof.includes && (proof.includes('youtube') || proof.includes('youtu.be'))) {
-    return { icon: '▶️', label: 'YouTube', cssClass: 'proof-badge--youtube', hasFile: false };
+  
+  // Has a URL
+  if (proof && proof.startsWith && proof.startsWith('http')) {
+    if (proof.includes('youtube') || proof.includes('youtu.be')) {
+      return { icon: '▶️', label: 'YouTube', cssClass: 'proof-badge--youtube', canView: true };
+    }
+    if (proof.includes('drive.google')) {
+      return { icon: '📁', label: 'Drive', cssClass: 'proof-badge--link', canView: true };
+    }
+    return { icon: '🔗', label: 'Link', cssClass: 'proof-badge--link', canView: true };
   }
-  if (proof.startsWith && proof.startsWith('http')) {
-    return { icon: '🔗', label: 'Link', cssClass: 'proof-badge--link', hasFile: false };
-  }
-  return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
+  
+  // No proof
+  return { icon: '⚠️', label: 'No proof', cssClass: 'proof-badge--none', canView: false };
 }
 
 function formatDate(dateStr) {
@@ -212,17 +225,25 @@ async function logActivity(participantId, logData) {
 function showProofModal(participantName, date, proof, proofPath) {
   state.proofModal = { participantName, date, proof, proofPath };
   render();
-  // Load image if it's an image file
-  if (proofPath && proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
-    loadProofImage(proofPath);
-  }
+  // Load image after render
+  setTimeout(() => {
+    if (proofPath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(proofPath)) {
+      loadProofImage(proofPath);
+    }
+  }, 50);
 }
 
 async function loadProofImage(filePath) {
-  const result = await window.electronAPI.getProofFile(filePath);
-  if (result.success && result.type === 'image') {
-    const img = document.getElementById('proof-image');
-    if (img) img.src = result.data;
+  try {
+    const result = await window.electronAPI.getProofFile(filePath);
+    if (result && result.success && result.type === 'image') {
+      const img = document.getElementById('proof-image');
+      if (img) {
+        img.src = result.data;
+      }
+    }
+  } catch (err) {
+    console.error('Error loading image:', err);
   }
 }
 
@@ -246,7 +267,6 @@ async function resetCompetition() {
   }
 }
 
-// Main render function
 function render() {
   const app = document.getElementById('app');
   if (!state.competition) {
@@ -265,54 +285,66 @@ function render() {
 
 function renderProofModal() {
   const { participantName, date, proof, proofPath } = state.proofModal;
-  // Check if it's a file path (has proofPath)
-  const hasFile = proofPath && proofPath.length > 0;
-  const isImage = hasFile && proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
-  const isVideo = hasFile && proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
-  const isUrl = !hasFile && proof && proof.startsWith && proof.startsWith('http');
+  
+  // Determine what type of proof we have
+  const isImageFile = proofPath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(proofPath);
+  const isVideoFile = proofPath && /\.(mp4|mov|avi|mkv|webm)$/i.test(proofPath);
+  const isUrl = proof && typeof proof === 'string' && proof.startsWith('http');
   const isYoutube = isUrl && (proof.includes('youtube') || proof.includes('youtu.be'));
   const isGoogleDrive = isUrl && proof.includes('drive.google');
 
+  let content = '';
+  
+  if (isImageFile) {
+    content = `
+      <div class="proof-preview proof-preview--image">
+        <img src="" alt="Loading..." id="proof-image" class="proof-image" />
+        <p class="text-muted mt-md" style="font-size:12px;">Right-click image to save</p>
+      </div>
+    `;
+  } else if (isVideoFile) {
+    content = `
+      <div class="proof-preview">
+        <div class="video-placeholder">
+          <span style="font-size:48px;">🎥</span>
+          <p>Video file</p>
+          <p class="text-muted" style="font-size:12px;margin-top:8px;">Click below to open in your default video player</p>
+        </div>
+      </div>
+      <button class="btn btn--primary btn--full mt-lg" data-open-file="${proofPath}">Open Video</button>
+    `;
+  } else if (isUrl) {
+    content = `
+      <div class="proof-preview">
+        <div class="link-placeholder">
+          <span style="font-size:48px;">${isYoutube ? '▶️' : isGoogleDrive ? '📁' : '🔗'}</span>
+          <p style="font-weight:600;margin-top:12px;">${isYoutube ? 'YouTube Video' : isGoogleDrive ? 'Google Drive File' : 'External Link'}</p>
+          <p class="text-muted" style="word-break:break-all;font-size:12px;margin-top:8px;">${proof}</p>
+        </div>
+      </div>
+      <button class="btn btn--primary btn--full mt-lg" id="open-external-link" data-url="${proof}">Open in Browser</button>
+    `;
+  } else {
+    content = `
+      <div class="proof-preview">
+        <div class="no-proof-placeholder">
+          <span style="font-size:48px;">⚠️</span>
+          <p>No proof available</p>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="modal-overlay" id="proof-modal-overlay">
-      <div class="modal ${isImage ? 'modal--large' : ''}">
+      <div class="modal ${isImageFile ? 'modal--large' : ''}">
         <div class="modal__header">
           <h3 class="modal__title">Proof - ${participantName}</h3>
           <button class="modal__close" id="close-modal">&times;</button>
         </div>
         <div class="modal__content">
           <p class="text-muted mb-lg">Date: ${formatDate(date)}</p>
-          ${isImage ? `
-            <div class="proof-preview proof-preview--image">
-              <img src="" alt="Proof" id="proof-image" class="proof-image" />
-              <p class="text-muted mt-md" style="font-size:12px;">Right-click image to save</p>
-            </div>
-          ` : isVideo ? `
-            <div class="proof-preview">
-              <div class="video-placeholder">
-                <span style="font-size:48px;">🎥</span>
-                <p>Video file</p>
-                <p class="text-muted" style="font-size:12px;margin-top:8px;">Click below to open in your default video player</p>
-              </div>
-            </div>
-            <button class="btn btn--primary btn--full mt-lg" data-open-file="${proofPath}">Open Video</button>
-          ` : isUrl ? `
-            <div class="proof-preview">
-              <div class="link-placeholder">
-                <span style="font-size:48px;">${isYoutube ? '▶️' : isGoogleDrive ? '📁' : '🔗'}</span>
-                <p style="font-weight:600;margin-top:12px;">${isYoutube ? 'YouTube Video' : isGoogleDrive ? 'Google Drive File' : 'External Link'}</p>
-                <p class="text-muted" style="word-break:break-all;font-size:12px;margin-top:8px;">${proof}</p>
-              </div>
-            </div>
-            <button class="btn btn--primary btn--full mt-lg" id="open-external-link" data-url="${proof}">Open in Browser</button>
-          ` : `
-            <div class="proof-preview">
-              <div class="no-proof-placeholder">
-                <span style="font-size:48px;">⚠️</span>
-                <p>No proof uploaded</p>
-              </div>
-            </div>
-          `}
+          ${content}
         </div>
       </div>
     </div>
@@ -610,15 +642,14 @@ function renderParticipantDetail() {
           </thead>
           <tbody>
             ${sortedLogs.length > 0 ? sortedLogs.map(log => {
-              const proofInfo = getProofInfo(log.proof, log.proofPath);
+              const proofInfo = getProofInfo(log);
               const dayPoints = (log.completed ? 1 : 0) + (log.water ? 1 : 0) + (log.walkWithFriend ? 1 : 0);
-              const hasViewableProof = log.proofPath || (log.proof && log.proof !== 'none' && log.proof.startsWith && log.proof.startsWith('http'));
               return `
                 <tr class="table__row">
                   <td class="table__td"><span class="log-date">${formatDate(log.date)}</span></td>
                   <td class="table__td table__td--center">${log.completed ? '<span class="scoreboard-check">✓</span>' : '<span class="scoreboard-dash">—</span>'}</td>
                   <td class="table__td table__td--center">${log.completed ? `${log.duration || 0}m` : '—'}</td>
-                  <td class="table__td table__td--center">${log.completed ? `<div class="proof-indicator"><span class="proof-indicator__icon">${proofInfo.icon}</span><span class="proof-badge ${proofInfo.cssClass}">${proofInfo.label}</span>${hasViewableProof ? `<button class="btn btn--sm" style="margin-left:4px;padding:2px 6px;font-size:10px;" data-view-proof="${p.id}" data-proof-date="${log.date}" data-proof="${log.proof || ''}" data-proof-path="${log.proofPath || ''}">View</button>` : ''}</div>` : '—'}</td>
+                  <td class="table__td table__td--center">${log.completed ? `<div class="proof-indicator"><span class="proof-indicator__icon">${proofInfo.icon}</span><span class="proof-badge ${proofInfo.cssClass}">${proofInfo.label}</span>${proofInfo.canView ? `<button class="btn btn--sm view-proof-btn" style="margin-left:4px;padding:2px 6px;font-size:10px;" data-participant-id="${p.id}" data-date="${log.date}" data-proof="${log.proof || ''}" data-proof-path="${log.proofPath || ''}">View</button>` : ''}</div>` : '—'}</td>
                   <td class="table__td table__td--center">${log.water ? '💧' : '—'}</td>
                   <td class="table__td table__td--center">${log.walkWithFriend ? '👫' : '—'}</td>
                   <td class="table__td table__td--center">${log.steps ? formatNumber(log.steps) : '—'}</td>
@@ -815,9 +846,11 @@ function attachEventListeners() {
       const weight = parseFloat(document.getElementById('log-weight')?.value) || 0;
 
       let proof = null, proofPath = null;
-      if (completed) {
-        if (currentUploadedProof) { proof = currentUploadedProof.type; proofPath = currentUploadedProof.path; }
-        else if (proofUrl) { proof = proofUrl; }
+      if (currentUploadedProof) { 
+        proof = currentUploadedProof.type; 
+        proofPath = currentUploadedProof.path; 
+      } else if (proofUrl) { 
+        proof = proofUrl; 
       }
 
       await logActivity(participantId, {
@@ -841,15 +874,18 @@ function attachEventListeners() {
     });
   }
 
-  // View proof buttons
-  document.querySelectorAll('[data-view-proof]').forEach(btn => {
+  // View proof buttons - use class selector
+  document.querySelectorAll('.view-proof-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const participantId = parseInt(e.currentTarget.dataset.viewProof);
+      e.stopPropagation();
+      const participantId = parseInt(e.currentTarget.dataset.participantId);
       const participant = state.participants.find(p => p.id === participantId);
-      const date = e.currentTarget.dataset.proofDate;
+      const date = e.currentTarget.dataset.date;
       const proof = e.currentTarget.dataset.proof;
       const proofPath = e.currentTarget.dataset.proofPath;
-      if (participant) showProofModal(participant.name, date, proof, proofPath);
+      if (participant) {
+        showProofModal(participant.name, date, proof, proofPath);
+      }
     });
   });
 
