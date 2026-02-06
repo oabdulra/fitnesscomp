@@ -12,8 +12,18 @@ let state = {
 
 let currentUploadedProof = null;
 
+// Get local date string (fixes timezone issue)
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 async function init() {
+  console.log('App initializing...');
   await loadData();
+  console.log('Data loaded:', state);
   render();
 }
 
@@ -33,6 +43,7 @@ async function saveData() {
       competition: state.competition,
       participants: state.participants
     });
+    console.log('Data saved');
   } catch (error) {
     console.error('Error saving data:', error);
   }
@@ -50,8 +61,10 @@ function calculatePoints(logs) {
 
 // Check if a log entry has valid proof
 function hasProof(log) {
-  if (log.proofPath) return true;
-  if (log.proof && log.proof !== 'none' && log.proof !== '') return true;
+  if (log.proofPath && log.proofPath.length > 0) return true;
+  if (log.proof && log.proof !== 'none' && log.proof !== '' && log.proof !== 'photo' && log.proof !== 'video') return true;
+  // If proof is 'photo' or 'video', we need proofPath
+  if ((log.proof === 'photo' || log.proof === 'video') && log.proofPath) return true;
   return false;
 }
 
@@ -95,7 +108,7 @@ function calculateStreak(logs) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   for (let i = 0; i < sortedLogs.length; i++) {
-    const logDate = new Date(sortedLogs[i].date);
+    const logDate = new Date(sortedLogs[i].date + 'T00:00:00');
     logDate.setHours(0, 0, 0, 0);
     const expectedDate = new Date(today);
     expectedDate.setDate(today.getDate() - i);
@@ -110,8 +123,9 @@ function calculateStreak(logs) {
 
 function getCompetitionProgress() {
   if (!state.competition) return { day: 0, percent: 0, daysLeft: 0 };
-  const start = new Date(state.competition.startDate);
+  const start = new Date(state.competition.startDate + 'T00:00:00');
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const daysPassed = Math.floor((today - start) / (1000 * 60 * 60 * 24)) + 1;
   const percent = Math.min(100, Math.round((daysPassed / state.competition.durationDays) * 100));
   const daysLeft = Math.max(0, state.competition.durationDays - daysPassed);
@@ -123,8 +137,10 @@ function getProofInfo(log) {
   const proof = log.proof;
   const proofPath = log.proofPath;
   
-  // Has a file uploaded
-  if (proofPath) {
+  console.log('getProofInfo called:', { proof, proofPath });
+  
+  // Has a file uploaded (proofPath exists)
+  if (proofPath && proofPath.length > 0) {
     const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(proofPath);
     return { 
       icon: isVideo ? '🎥' : '📷', 
@@ -134,8 +150,8 @@ function getProofInfo(log) {
     };
   }
   
-  // Has a URL
-  if (proof && proof.startsWith && proof.startsWith('http')) {
+  // Has a URL (starts with http)
+  if (proof && typeof proof === 'string' && proof.startsWith('http')) {
     if (proof.includes('youtube') || proof.includes('youtu.be')) {
       return { icon: '▶️', label: 'YouTube', cssClass: 'proof-badge--youtube', canView: true };
     }
@@ -150,7 +166,9 @@ function getProofInfo(log) {
 }
 
 function formatDate(dateStr) {
-  const date = new Date(dateStr);
+  // Parse date string as local date
+  const parts = dateStr.split('-');
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
@@ -173,7 +191,7 @@ async function createCompetition(name, durationDays) {
   state.competition = {
     name,
     durationDays: parseInt(durationDays),
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: getLocalDateString(),
     createdAt: new Date().toISOString()
   };
   await saveData();
@@ -185,7 +203,7 @@ async function addParticipant(name, avatar) {
     id: Date.now(),
     name,
     avatar: avatar || AVATARS[Math.floor(Math.random() * AVATARS.length)],
-    joinDate: new Date().toISOString().split('T')[0],
+    joinDate: getLocalDateString(),
     logs: []
   };
   state.participants.push(newParticipant);
@@ -202,14 +220,17 @@ async function deleteParticipant(id) {
 }
 
 async function uploadProofFile(participantId, date) {
+  console.log('uploadProofFile called:', participantId, date);
   const result = await window.electronAPI.uploadProof(participantId, date);
-  if (result.success) {
+  console.log('uploadProof result:', result);
+  if (result && result.success) {
     return { type: result.fileType, path: result.filePath, fileName: result.fileName };
   }
   return null;
 }
 
 async function logActivity(participantId, logData) {
+  console.log('logActivity called:', participantId, logData);
   const participant = state.participants.find(p => p.id === participantId);
   if (!participant) return;
   const existingIndex = participant.logs.findIndex(l => l.date === logData.date);
@@ -218,28 +239,36 @@ async function logActivity(participantId, logData) {
   } else {
     participant.logs.push(logData);
   }
+  console.log('Updated participant logs:', participant.logs);
   await saveData();
   render();
 }
 
 function showProofModal(participantName, date, proof, proofPath) {
+  console.log('showProofModal called:', { participantName, date, proof, proofPath });
   state.proofModal = { participantName, date, proof, proofPath };
   render();
-  // Load image after render
-  setTimeout(() => {
-    if (proofPath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(proofPath)) {
+  
+  // Load image after render with a delay
+  if (proofPath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(proofPath)) {
+    console.log('Will load image:', proofPath);
+    setTimeout(() => {
       loadProofImage(proofPath);
-    }
-  }, 50);
+    }, 100);
+  }
 }
 
 async function loadProofImage(filePath) {
+  console.log('loadProofImage called:', filePath);
   try {
     const result = await window.electronAPI.getProofFile(filePath);
+    console.log('getProofFile result:', result);
     if (result && result.success && result.type === 'image') {
       const img = document.getElementById('proof-image');
+      console.log('Found img element:', img);
       if (img) {
         img.src = result.data;
+        console.log('Image src set');
       }
     }
   } catch (err) {
@@ -286,6 +315,8 @@ function render() {
 function renderProofModal() {
   const { participantName, date, proof, proofPath } = state.proofModal;
   
+  console.log('renderProofModal:', { proof, proofPath });
+  
   // Determine what type of proof we have
   const isImageFile = proofPath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(proofPath);
   const isVideoFile = proofPath && /\.(mp4|mov|avi|mkv|webm)$/i.test(proofPath);
@@ -298,7 +329,7 @@ function renderProofModal() {
   if (isImageFile) {
     content = `
       <div class="proof-preview proof-preview--image">
-        <img src="" alt="Loading..." id="proof-image" class="proof-image" />
+        <img src="" alt="Loading..." id="proof-image" class="proof-image" style="max-width:100%;max-height:500px;border-radius:8px;" />
         <p class="text-muted mt-md" style="font-size:12px;">Right-click image to save</p>
       </div>
     `;
@@ -311,7 +342,7 @@ function renderProofModal() {
           <p class="text-muted" style="font-size:12px;margin-top:8px;">Click below to open in your default video player</p>
         </div>
       </div>
-      <button class="btn btn--primary btn--full mt-lg" data-open-file="${proofPath}">Open Video</button>
+      <button class="btn btn--primary btn--full mt-lg open-file-btn" data-filepath="${proofPath}">Open Video</button>
     `;
   } else if (isUrl) {
     content = `
@@ -475,7 +506,7 @@ function renderParticipants() {
               <div class="card participant-card">
                 <div class="participant-card__header">
                   <div class="participant-card__avatar">${p.avatar}</div>
-                  <div class="participant-card__info"><div class="participant-card__name">${p.name}</div><div class="participant-card__date">Joined: ${p.joinDate}</div></div>
+                  <div class="participant-card__info"><div class="participant-card__name">${p.name}</div><div class="participant-card__date">Joined: ${formatDate(p.joinDate)}</div></div>
                   <div class="participant-card__score"><div class="participant-card__points">${stats.totalPoints}</div><div class="participant-card__points-label">Points</div></div>
                 </div>
                 <div class="participant-card__stats">
@@ -498,7 +529,7 @@ function renderParticipants() {
 }
 
 function renderActivityLog() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   if (state.participants.length === 0) {
     return `<div class="fade-in"><h2 class="section-title mb-2xl">Log Daily Activity</h2><div class="card"><div class="empty-state"><div class="empty-state__icon">📝</div><div class="empty-state__title">No Participants</div><div class="empty-state__text">Add participants first</div><button class="btn btn--primary" data-view="participants">Add Participants</button></div></div></div>`;
   }
@@ -614,7 +645,7 @@ function renderParticipantDetail() {
         <div class="card__content--lg">
           <div class="detail-header">
             <div class="detail-header__avatar">${p.avatar}</div>
-            <div class="detail-header__info"><h2 class="detail-header__name">${p.name}</h2><p class="detail-header__joined">Joined: ${p.joinDate}</p></div>
+            <div class="detail-header__info"><h2 class="detail-header__name">${p.name}</h2><p class="detail-header__joined">Joined: ${formatDate(p.joinDate)}</p></div>
             <div class="detail-header__score"><div class="detail-header__points">${stats.totalPoints}</div><div class="detail-header__points-label">Total Points</div></div>
           </div>
           <div class="stats-grid stats-grid--5">
@@ -649,7 +680,7 @@ function renderParticipantDetail() {
                   <td class="table__td"><span class="log-date">${formatDate(log.date)}</span></td>
                   <td class="table__td table__td--center">${log.completed ? '<span class="scoreboard-check">✓</span>' : '<span class="scoreboard-dash">—</span>'}</td>
                   <td class="table__td table__td--center">${log.completed ? `${log.duration || 0}m` : '—'}</td>
-                  <td class="table__td table__td--center">${log.completed ? `<div class="proof-indicator"><span class="proof-indicator__icon">${proofInfo.icon}</span><span class="proof-badge ${proofInfo.cssClass}">${proofInfo.label}</span>${proofInfo.canView ? `<button class="btn btn--sm view-proof-btn" style="margin-left:4px;padding:2px 6px;font-size:10px;" data-participant-id="${p.id}" data-date="${log.date}" data-proof="${log.proof || ''}" data-proof-path="${log.proofPath || ''}">View</button>` : ''}</div>` : '—'}</td>
+                  <td class="table__td table__td--center">${log.completed ? `<div class="proof-indicator"><span class="proof-indicator__icon">${proofInfo.icon}</span><span class="proof-badge ${proofInfo.cssClass}">${proofInfo.label}</span>${proofInfo.canView ? `<button class="btn btn--sm view-proof-btn" style="margin-left:4px;padding:2px 6px;font-size:10px;" data-participant-id="${p.id}" data-log-date="${log.date}">View</button>` : ''}</div>` : '—'}</td>
                   <td class="table__td table__td--center">${log.water ? '💧' : '—'}</td>
                   <td class="table__td table__td--center">${log.walkWithFriend ? '👫' : '—'}</td>
                   <td class="table__td table__td--center">${log.steps ? formatNumber(log.steps) : '—'}</td>
@@ -676,7 +707,7 @@ function renderSettings() {
           <div class="form-group"><label class="form-label">Competition Name</label><div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;color:var(--text-secondary);">${state.competition.name}</div></div>
           <div class="form-row">
             <div class="form-group"><label class="form-label">Duration</label><div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;color:var(--text-secondary);">${state.competition.durationDays} days</div></div>
-            <div class="form-group"><label class="form-label">Start Date</label><div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;color:var(--text-secondary);">${state.competition.startDate}</div></div>
+            <div class="form-group"><label class="form-label">Start Date</label><div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;color:var(--text-secondary);">${formatDate(state.competition.startDate)}</div></div>
           </div>
         </div>
       </div>
@@ -790,6 +821,7 @@ function attachEventListeners() {
       const date = document.getElementById('log-date').value;
       if (!participantId) { alert('Please select a participant first'); return; }
       const result = await uploadProofFile(parseInt(participantId), date);
+      console.log('Upload result in UI:', result);
       if (result) {
         currentUploadedProof = result;
         if (uploadStatus) {
@@ -849,14 +881,19 @@ function attachEventListeners() {
       if (currentUploadedProof) { 
         proof = currentUploadedProof.type; 
         proofPath = currentUploadedProof.path; 
+        console.log('Setting proof from upload:', { proof, proofPath });
       } else if (proofUrl) { 
         proof = proofUrl; 
+        console.log('Setting proof from URL:', proof);
       }
 
-      await logActivity(participantId, {
+      const logData = {
         date, completed, duration: completed ? duration : 0, proof, proofPath, water, walkWithFriend,
         steps: steps || undefined, distance: distance || undefined, weight: weight || undefined
-      });
+      };
+      console.log('Submitting log data:', logData);
+
+      await logActivity(participantId, logData);
 
       // Reset form
       currentUploadedProof = null;
@@ -874,17 +911,22 @@ function attachEventListeners() {
     });
   }
 
-  // View proof buttons - use class selector
+  // View proof buttons - find the log and get proof data from it
   document.querySelectorAll('.view-proof-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const participantId = parseInt(e.currentTarget.dataset.participantId);
+      const logDate = e.currentTarget.dataset.logDate;
+      
+      console.log('View proof clicked:', { participantId, logDate });
+      
       const participant = state.participants.find(p => p.id === participantId);
-      const date = e.currentTarget.dataset.date;
-      const proof = e.currentTarget.dataset.proof;
-      const proofPath = e.currentTarget.dataset.proofPath;
       if (participant) {
-        showProofModal(participant.name, date, proof, proofPath);
+        const log = participant.logs.find(l => l.date === logDate);
+        console.log('Found log:', log);
+        if (log) {
+          showProofModal(participant.name, log.date, log.proof, log.proofPath);
+        }
       }
     });
   });
@@ -895,9 +937,13 @@ function attachEventListeners() {
   if (closeModalBtn) closeModalBtn.addEventListener('click', closeProofModal);
   if (modalOverlay) modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeProofModal(); });
 
-  // Open file buttons
-  document.querySelectorAll('[data-open-file]').forEach(btn => {
-    btn.addEventListener('click', (e) => openProofFile(e.currentTarget.dataset.openFile));
+  // Open file buttons (for videos in modal)
+  document.querySelectorAll('.open-file-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const filePath = e.currentTarget.dataset.filepath;
+      console.log('Opening file:', filePath);
+      openProofFile(filePath);
+    });
   });
 
   // Open external link button
@@ -905,6 +951,7 @@ function attachEventListeners() {
   if (openExternalLinkBtn) {
     openExternalLinkBtn.addEventListener('click', (e) => {
       const url = e.currentTarget.dataset.url;
+      console.log('Opening external URL:', url);
       if (url) {
         window.electronAPI.openExternalLink(url);
       }

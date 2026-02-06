@@ -31,8 +31,8 @@ function createWindow() {
 
   mainWindow.loadFile('src/index.html');
   
-  // Open DevTools in development
-  // mainWindow.webContents.openDevTools();
+  // Open DevTools to debug
+  mainWindow.webContents.openDevTools();
 }
 
 // Initialize empty data structure
@@ -125,9 +125,13 @@ ipcMain.handle('upload-proof', async (event, participantId, date) => {
 
 // Get proof file as base64 for display
 ipcMain.handle('get-proof-file', async (event, filePath) => {
+  console.log('get-proof-file called with:', filePath);
   try {
-    if (fs.existsSync(filePath)) {
+    const exists = fs.existsSync(filePath);
+    console.log('File exists:', exists);
+    if (exists) {
       const data = fs.readFileSync(filePath);
+      console.log('File read, size:', data.length);
       const ext = path.extname(filePath).toLowerCase();
       const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
       
@@ -137,13 +141,16 @@ ipcMain.handle('get-proof-file', async (event, filePath) => {
                         ext === '.gif' ? 'image/gif' : 
                         ext === '.webp' ? 'image/webp' : 
                         ext === '.bmp' ? 'image/bmp' : 'image/jpeg';
+        console.log('Returning image with mimeType:', mimeType);
         return { success: true, data: `data:${mimeType};base64,${base64}`, type: 'image' };
       } else {
         return { success: true, filePath: filePath, type: 'video' };
       }
     }
+    console.log('File not found');
     return { success: false, error: 'File not found' };
   } catch (error) {
+    console.error('Error in get-proof-file:', error);
     return { success: false, error: error.message };
   }
 });
