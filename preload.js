@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importData: (path) => ipcRenderer.invoke('import-data', path),
   uploadProof: (participantId, date) => ipcRenderer.invoke('upload-proof', participantId, date),
   getProofFile: (filePath) => ipcRenderer.invoke('get-proof-file', filePath),
-  openProofFile: (filePath) => ipcRenderer.invoke('open-proof-file', filePath)
+  openProofFile: (filePath) => ipcRenderer.invoke('open-proof-file', filePath),
+  openExternalLink: (url) => ipcRenderer.invoke('open-external-link', url)
 });

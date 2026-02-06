@@ -158,6 +158,17 @@ ipcMain.handle('open-proof-file', async (event, filePath) => {
   }
 });
 
+// Open external link in browser
+ipcMain.handle('open-external-link', async (event, url) => {
+  try {
+    const { shell } = require('electron');
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('export-data', async (event, exportPath) => {
   try {
     const data = loadData();

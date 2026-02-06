@@ -261,10 +261,12 @@ function renderProofModal() {
   const isImage = isFile && proofPath.match(/\.(jpg|jpeg|png|gif|webp)$/i);
   const isVideo = isFile && proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
   const isUrl = proof && proof.startsWith && proof.startsWith('http');
+  const isYoutube = isUrl && (proof.includes('youtube') || proof.includes('youtu.be'));
+  const isGoogleDrive = isUrl && proof.includes('drive.google');
 
   return `
     <div class="modal-overlay" id="proof-modal-overlay">
-      <div class="modal">
+      <div class="modal ${isImage ? 'modal--large' : ''}">
         <div class="modal__header">
           <h3 class="modal__title">Proof - ${participantName}</h3>
           <button class="modal__close" id="close-modal">&times;</button>
@@ -272,16 +274,35 @@ function renderProofModal() {
         <div class="modal__content">
           <p class="text-muted mb-lg">Date: ${formatDate(date)}</p>
           ${isImage ? `
-            <div class="proof-preview"><img src="" alt="Proof" id="proof-image" style="max-width:100%;max-height:400px;border-radius:8px;" /></div>
-            <button class="btn btn--secondary btn--full mt-lg" data-open-file="${proofPath}">Open in Default App</button>
+            <div class="proof-preview proof-preview--image">
+              <img src="" alt="Proof" id="proof-image" class="proof-image" />
+              <p class="text-muted mt-md" style="font-size:12px;">Right-click image to save</p>
+            </div>
           ` : isVideo ? `
-            <div class="proof-preview"><div class="video-placeholder"><span style="font-size:48px;">🎥</span><p>Video file</p></div></div>
+            <div class="proof-preview">
+              <div class="video-placeholder">
+                <span style="font-size:48px;">🎥</span>
+                <p>Video file</p>
+                <p class="text-muted" style="font-size:12px;margin-top:8px;">Click below to open in your default video player</p>
+              </div>
+            </div>
             <button class="btn btn--primary btn--full mt-lg" data-open-file="${proofPath}">Open Video</button>
           ` : isUrl ? `
-            <div class="proof-preview"><div class="link-placeholder"><span style="font-size:48px;">${proof.includes('youtube')?'▶️':'🔗'}</span><p class="text-muted" style="word-break:break-all;">${proof}</p></div></div>
-            <a href="${proof}" target="_blank" class="btn btn--primary btn--full mt-lg">Open Link</a>
+            <div class="proof-preview">
+              <div class="link-placeholder">
+                <span style="font-size:48px;">${isYoutube ? '▶️' : isGoogleDrive ? '📁' : '🔗'}</span>
+                <p style="font-weight:600;margin-top:12px;">${isYoutube ? 'YouTube Video' : isGoogleDrive ? 'Google Drive File' : 'External Link'}</p>
+                <p class="text-muted" style="word-break:break-all;font-size:12px;margin-top:8px;">${proof}</p>
+              </div>
+            </div>
+            <button class="btn btn--primary btn--full mt-lg" id="open-external-link" data-url="${proof}">Open in Browser</button>
           ` : `
-            <div class="proof-preview"><div class="no-proof-placeholder"><span style="font-size:48px;">⚠️</span><p>No proof uploaded</p></div></div>
+            <div class="proof-preview">
+              <div class="no-proof-placeholder">
+                <span style="font-size:48px;">⚠️</span>
+                <p>No proof uploaded</p>
+              </div>
+            </div>
           `}
         </div>
       </div>
@@ -351,17 +372,11 @@ function renderCurrentView() {
 }
 
 function renderFooter() {
-  return `<footer class="footer">${state.competition.name} • Data saved locally</footer>`;
+  return `<footer class="footer">${state.competition.name} • Data saved locally • Made by Osama</footer>`;
 }
 
 function renderDashboard() {
   const sorted = getSortedParticipants();
-  const totalWorkouts = state.participants.reduce((acc, p) => acc + (p.logs || []).filter(l => l.completed).length, 0);
-  const totalMinutes = state.participants.reduce((acc, p) => acc + (p.logs || []).reduce((a, l) => a + (l.duration || 0), 0), 0);
-  const totalWater = state.participants.reduce((acc, p) => acc + (p.logs || []).filter(l => l.water).length, 0);
-  const totalPoints = state.participants.reduce((acc, p) => acc + calculatePoints(p.logs || []), 0);
-  const totalSteps = state.participants.reduce((acc, p) => acc + (p.logs || []).reduce((a, l) => a + (l.steps || 0), 0), 0);
-  const totalDistance = state.participants.reduce((acc, p) => acc + (p.logs || []).reduce((a, l) => a + (l.distance || 0), 0), 0);
   const progress = getCompetitionProgress();
 
   return `
@@ -376,19 +391,6 @@ function renderDashboard() {
           <div class="progress-bar"><div class="progress-bar__fill" style="width:${progress.percent}%"></div></div>
         </div>
       </div>
-      <div class="stats-grid mb-2xl">
-        <div class="stat-card"><div class="stat-card__icon">🎯</div><div class="stat-card__value">${totalWorkouts}</div><div class="stat-card__label">Total Workouts</div></div>
-        <div class="stat-card"><div class="stat-card__icon">⏱️</div><div class="stat-card__value">${Math.round(totalMinutes / 60)}h</div><div class="stat-card__label">Total Hours</div></div>
-        <div class="stat-card"><div class="stat-card__icon">💧</div><div class="stat-card__value stat-card__value--cyan">${totalWater}</div><div class="stat-card__label">Hydration Goals</div></div>
-        <div class="stat-card"><div class="stat-card__icon">⭐</div><div class="stat-card__value stat-card__value--gold">${totalPoints}</div><div class="stat-card__label">Total Points</div></div>
-      </div>
-      ${(totalSteps > 0 || totalDistance > 0) ? `
-        <div class="stats-grid stats-grid--3 mb-2xl">
-          <div class="stat-card"><div class="stat-card__icon">👟</div><div class="stat-card__value">${formatNumber(totalSteps)}</div><div class="stat-card__label">Total Steps</div></div>
-          <div class="stat-card"><div class="stat-card__icon">📏</div><div class="stat-card__value">${totalDistance.toFixed(1)}</div><div class="stat-card__label">Total Distance (km)</div></div>
-          <div class="stat-card"><div class="stat-card__icon">🚶</div><div class="stat-card__value">${formatNumber(Math.round(totalSteps / Math.max(1, progress.day)))}</div><div class="stat-card__label">Avg Steps/Day</div></div>
-        </div>
-      ` : ''}
       <h3 class="section-subtitle">🔥 Current Leaders</h3>
       ${sorted.length > 0 ? `
         <div class="leaders-grid">
@@ -852,6 +854,17 @@ function attachEventListeners() {
   document.querySelectorAll('[data-open-file]').forEach(btn => {
     btn.addEventListener('click', (e) => openProofFile(e.currentTarget.dataset.openFile));
   });
+
+  // Open external link button
+  const openExternalLinkBtn = document.getElementById('open-external-link');
+  if (openExternalLinkBtn) {
+    openExternalLinkBtn.addEventListener('click', (e) => {
+      const url = e.currentTarget.dataset.url;
+      if (url) {
+        window.electronAPI.openExternalLink(url);
+      }
+    });
+  }
 
   // Reset competition
   const resetBtn = document.getElementById('reset-competition-btn');
