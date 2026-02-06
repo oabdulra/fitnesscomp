@@ -55,8 +55,9 @@ function calculateStats(participant) {
   const totalMinutes = logs.reduce((acc, l) => acc + (l.duration || 0), 0);
   const waterDays = logs.filter(l => l.water).length;
   const friendWalks = logs.filter(l => l.walkWithFriend).length;
-  const proofUploads = logs.filter(l => l.proof && l.proof !== 'none').length;
-  const noProofDays = logs.filter(l => l.completed && (!l.proof || l.proof === 'none')).length;
+  // Count proofs - check both proof and proofPath
+  const proofUploads = logs.filter(l => l.completed && (l.proofPath || (l.proof && l.proof !== 'none'))).length;
+  const noProofDays = logs.filter(l => l.completed && !l.proofPath && (!l.proof || l.proof === 'none')).length;
   const totalSteps = logs.reduce((acc, l) => acc + (l.steps || 0), 0);
   const totalDistance = logs.reduce((acc, l) => acc + (l.distance || 0), 0);
   const weights = logs.filter(l => l.weight).map(l => l.weight);
@@ -112,21 +113,27 @@ function getCompetitionProgress() {
   return { day: Math.min(daysPassed, state.competition.durationDays), percent, daysLeft };
 }
 
-function getProofInfo(proof) {
+function getProofInfo(proof, proofPath) {
+  // Check proofPath first (file uploads)
+  if (proofPath) {
+    const isVideo = proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
+    const isImage = proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
+    if (isVideo) return { icon: '🎥', label: 'Video', cssClass: 'proof-badge--video', hasFile: true };
+    if (isImage) return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
+    return { icon: '📁', label: 'File', cssClass: 'proof-badge--photo', hasFile: true };
+  }
+  // Check proof type or URL
   if (!proof || proof === 'none') return { icon: '⚠️', label: 'No proof', cssClass: 'proof-badge--none', hasFile: false };
   if (proof === 'photo') return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
   if (proof === 'video') return { icon: '🎥', label: 'Video', cssClass: 'proof-badge--video', hasFile: true };
-  if (proof.includes && proof.includes('proof_')) {
-    const isVideo = proof.match(/\.(mp4|mov|avi|mkv|webm)$/i);
-    return { icon: isVideo ? '🎥' : '📷', label: isVideo ? 'Video' : 'Photo', cssClass: isVideo ? 'proof-badge--video' : 'proof-badge--photo', hasFile: true };
-  }
+  // Check for URLs
   if (proof.includes && (proof.includes('youtube') || proof.includes('youtu.be'))) {
     return { icon: '▶️', label: 'YouTube', cssClass: 'proof-badge--youtube', hasFile: false };
   }
   if (proof.startsWith && proof.startsWith('http')) {
     return { icon: '🔗', label: 'Link', cssClass: 'proof-badge--link', hasFile: false };
   }
-  return { icon: '🔗', label: 'Link', cssClass: 'proof-badge--link', hasFile: false };
+  return { icon: '📷', label: 'Photo', cssClass: 'proof-badge--photo', hasFile: true };
 }
 
 function formatDate(dateStr) {
@@ -205,7 +212,8 @@ async function logActivity(participantId, logData) {
 function showProofModal(participantName, date, proof, proofPath) {
   state.proofModal = { participantName, date, proof, proofPath };
   render();
-  if (proofPath && proofPath.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+  // Load image if it's an image file
+  if (proofPath && proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
     loadProofImage(proofPath);
   }
 }
@@ -257,10 +265,11 @@ function render() {
 
 function renderProofModal() {
   const { participantName, date, proof, proofPath } = state.proofModal;
-  const isFile = proofPath && proofPath.includes('proof_');
-  const isImage = isFile && proofPath.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-  const isVideo = isFile && proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
-  const isUrl = proof && proof.startsWith && proof.startsWith('http');
+  // Check if it's a file path (has proofPath)
+  const hasFile = proofPath && proofPath.length > 0;
+  const isImage = hasFile && proofPath.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
+  const isVideo = hasFile && proofPath.match(/\.(mp4|mov|avi|mkv|webm)$/i);
+  const isUrl = !hasFile && proof && proof.startsWith && proof.startsWith('http');
   const isYoutube = isUrl && (proof.includes('youtube') || proof.includes('youtu.be'));
   const isGoogleDrive = isUrl && proof.includes('drive.google');
 
@@ -601,7 +610,7 @@ function renderParticipantDetail() {
           </thead>
           <tbody>
             ${sortedLogs.length > 0 ? sortedLogs.map(log => {
-              const proofInfo = getProofInfo(log.proofPath || log.proof);
+              const proofInfo = getProofInfo(log.proof, log.proofPath);
               const dayPoints = (log.completed ? 1 : 0) + (log.water ? 1 : 0) + (log.walkWithFriend ? 1 : 0);
               const hasViewableProof = log.proofPath || (log.proof && log.proof !== 'none' && log.proof.startsWith && log.proof.startsWith('http'));
               return `

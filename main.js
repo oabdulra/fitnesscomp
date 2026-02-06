@@ -85,7 +85,7 @@ ipcMain.handle('upload-proof', async (event, participantId, date) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Select Proof File',
     filters: [
-      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
+      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] },
       { name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] },
       { name: 'All Files', extensions: ['*'] }
     ],
@@ -105,7 +105,7 @@ ipcMain.handle('upload-proof', async (event, participantId, date) => {
     fs.copyFileSync(sourcePath, destPath);
     
     // Determine file type
-    const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
     const videoExts = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
     let fileType = 'file';
     if (imageExts.includes(ext.toLowerCase())) fileType = 'photo';
@@ -129,13 +129,14 @@ ipcMain.handle('get-proof-file', async (event, filePath) => {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath);
       const ext = path.extname(filePath).toLowerCase();
-      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
       
       if (imageExts.includes(ext)) {
         const base64 = data.toString('base64');
         const mimeType = ext === '.png' ? 'image/png' : 
                         ext === '.gif' ? 'image/gif' : 
-                        ext === '.webp' ? 'image/webp' : 'image/jpeg';
+                        ext === '.webp' ? 'image/webp' : 
+                        ext === '.bmp' ? 'image/bmp' : 'image/jpeg';
         return { success: true, data: `data:${mimeType};base64,${base64}`, type: 'image' };
       } else {
         return { success: true, filePath: filePath, type: 'video' };
